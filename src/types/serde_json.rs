@@ -11,7 +11,12 @@ use crate::{
 impl ToSql for Value {
     #[inline]
     fn to_sql(&self) -> Result<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::from(serde_json::to_string(self).unwrap()))
+        match self {
+            Value::Null => Ok(ToSqlOutput::from(Value::Null)),
+            _ => Ok(ToSqlOutput::from(
+                serde_json::to_string(self).unwrap().replace("null", "NULL"),
+            )),
+        }
     }
 }
 
@@ -24,12 +29,14 @@ impl FromSql for Value {
             ValueRef::Blob(b) => serde_json::from_slice(b),
             _ => return Err(FromSqlError::InvalidType),
         }
-        .map_err(|err| FromSqlError::Other(Box::new(err)))
+            .map_err(|err| FromSqlError::Other(Box::new(err)))
     }
 }
 
+
 #[cfg(test)]
 mod test {
+    use serde_json::json;
     use crate::{types::ToSql, Connection, Result};
 
     fn checked_memory_handle() -> Result<Connection> {
@@ -53,6 +60,31 @@ mod test {
         assert_eq!(data, t);
         let b: serde_json::Value = db.query_row("SELECT b FROM foo", [], |r| r.get(0))?;
         assert_eq!(data, b);
+        Ok(())
+    }
+
+    #[test]
+    fn test_json_null_value() -> Result<()> {
+        let db = checked_memory_handle()?;
+        db.execute("INSERT INTO foo (n) VALUES (?)", [serde_json::Value::Null])?;
+        let res: usize = db.query_row("SELECT COUNT(*) FROM foo", [], |r| r.get(0)).unwrap();
+        assert_eq!(res, 1);
+        db.execute("INSERT INTO foo (s) VALUES (?)", [serde_json::Value::Null])?;
+        let res: usize = db.query_row("SELECT COUNT(*) FROM foo", [], |r| r.get(0)).unwrap();
+        assert_eq!(res, 2);
+        let json = json!({ "i": null });
+        db.execute("INSERT INTO foo (s) VALUES (?)", [&json])?;
+        let res: usize = db.query_row("SELECT COUNT(*) FROM foo", [], |r| r.get(0)).unwrap();
+        assert_eq!(res, 3);
+        let json = json!({
+            "i": 1
+        });
+        db.execute("INSERT INTO foo (s) VALUES (?)", [&json])?;
+        let mut query = db.prepare("SELECT s FROM foo").unwrap();
+        let rows = query.query_arrow([]).unwrap().collect::<Vec<_>>();
+        assert_eq!(rows.len(), 1);
+        let first_batch = rows.first().unwrap();
+        assert_eq!(first_batch.num_rows(), 4);
         Ok(())
     }
 }
