@@ -11,12 +11,9 @@ use crate::{
 impl ToSql for Value {
     #[inline]
     fn to_sql(&self) -> Result<ToSqlOutput<'_>> {
-        match self {
-            Value::Null => Ok(ToSqlOutput::from(Value::Null)),
-            _ => Ok(ToSqlOutput::from(
-                serde_json::to_string(self).unwrap().replace("null", "NULL"),
-            )),
-        }
+        Ok(ToSqlOutput::from(
+            serde_json::to_string(self).unwrap().replace("null", "NULL"),
+        ))
     }
 }
 
@@ -29,15 +26,14 @@ impl FromSql for Value {
             ValueRef::Blob(b) => serde_json::from_slice(b),
             _ => return Err(FromSqlError::InvalidType),
         }
-            .map_err(|err| FromSqlError::Other(Box::new(err)))
+        .map_err(|err| FromSqlError::Other(Box::new(err)))
     }
 }
 
-
 #[cfg(test)]
 mod test {
-    use serde_json::json;
     use crate::{types::ToSql, Connection, Result};
+    use serde_json::json;
 
     fn checked_memory_handle() -> Result<Connection> {
         let db = Connection::open_in_memory()?;
